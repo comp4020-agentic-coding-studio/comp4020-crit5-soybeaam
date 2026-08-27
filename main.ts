@@ -57,10 +57,61 @@ function worldToScreen(worldX: number): number {
   return (worldX - state.playerX) * ZOOM + canvas.width * PLAYER_SCREEN_X / devicePixelRatio;
 }
 
+function drawMountainLayer(groundY: number, parallax: number, period: number, peakHeight: number, color: string): void {
+  const offset = ((state.playerX * parallax) % period + period) % period;
+  const tiles = Math.ceil(canvas.width / (period * ZOOM)) + 2;
+  ctx.fillStyle = color;
+  for (let i = -1; i < tiles; i++) {
+    const baseWorldX = i * period - offset / ZOOM;
+    const x0 = baseWorldX * ZOOM;
+    const xMid = x0 + (period * ZOOM) / 2;
+    const x1 = x0 + period * ZOOM;
+    ctx.beginPath();
+    ctx.moveTo(x0, groundY);
+    ctx.lineTo(xMid, groundY - peakHeight);
+    ctx.lineTo(x1, groundY);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+function drawCloud(x: number, y: number, s: number): void {
+  ctx.beginPath();
+  ctx.arc(x, y, 10 * s, 0, Math.PI * 2);
+  ctx.arc(x + 12 * s, y - 6 * s, 13 * s, 0, Math.PI * 2);
+  ctx.arc(x + 26 * s, y, 10 * s, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawBackground(groundY: number): void {
+  const skyGradient = ctx.createLinearGradient(0, 0, 0, groundY);
+  skyGradient.addColorStop(0, "#1e3a5f");
+  skyGradient.addColorStop(1, "#3a6ea5");
+  ctx.fillStyle = skyGradient;
+  ctx.fillRect(0, 0, canvas.width, groundY);
+
+  const cloudScale = devicePixelRatio;
+  const cloudOffset = ((state.playerX * 0.03) % 260 + 260) % 260;
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  for (let i = -1; i < Math.ceil(canvas.width / (260 * cloudScale)) + 2; i++) {
+    const cx = i * 260 * cloudScale - cloudOffset * cloudScale;
+    drawCloud(cx + 40 * cloudScale, groundY * 0.18 + (i % 2) * 20 * cloudScale, cloudScale);
+  }
+
+  drawMountainLayer(groundY, 0.15, 420, groundY * 0.42, "#2f5d55");
+  drawMountainLayer(groundY, 0.3, 300, groundY * 0.3, "#3f7a68");
+}
+
 function draw(): void {
   const scale = devicePixelRatio;
   const groundY = canvas.height * GROUND_SCREEN_Y;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawBackground(groundY);
+
+  ctx.fillStyle = "#5a3d2b";
+  ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+  ctx.fillStyle = "#4caf50";
+  ctx.fillRect(0, groundY, canvas.width, 6 * scale);
 
   ctx.strokeStyle = "#2a2f3a";
   ctx.lineWidth = 3 * scale;
@@ -78,8 +129,7 @@ function draw(): void {
   for (const obstacle of state.obstacles) {
     const startPx = worldToScreen(obstacle.x) * scale;
     const endPx = worldToScreen(obstacle.x + obstacle.width) * scale;
-    ctx.fillStyle = "#0f1115";
-    ctx.fillRect(startPx, groundY, endPx - startPx, canvas.height - groundY);
+    ctx.clearRect(startPx, groundY, endPx - startPx, canvas.height - groundY);
     ctx.strokeStyle = "#7c8291";
     ctx.lineWidth = 2 * scale;
     ctx.beginPath();
