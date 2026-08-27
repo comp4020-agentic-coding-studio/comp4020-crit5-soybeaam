@@ -37,6 +37,7 @@ header a {
 main {
   height: 100%;
   display: flex;
+  position: relative;
 }
 
 #runner {
@@ -46,4 +47,109 @@ main {
   touch-action: manipulation;
   cursor: pointer;
   image-rendering: pixelated;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.hud {
+  position: absolute;
+  top: 0.75rem;
+  right: 1rem;
+  z-index: 2;
+  display: flex;
+  gap: 1rem;
+  align-items: baseline;
+  font-family: "Courier New", "Lucida Console", monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  font-size: 1.5rem;
+  color: #fff8e7;
+  text-shadow: 2px 2px 0 #3c2519, 0 2px 4px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+#best-label {
+  font-size: 1rem;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(23, 60, 94, 0.55);
+}
+
+.overlay-card {
+  --dirt: #5c3a29;
+  --dirt-dark: #3c2519;
+  --grass: #7cb824;
+  --grass-light: #a9de4a;
+  --sky-deep: #177be8;
+  font-family: "Courier New", "Lucida Console", monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: linear-gradient(180deg, var(--sky-deep) 0%, #3a8bd8 55%, var(--dirt) 55%, var(--dirt-dark) 100%);
+  color: #fff8e7;
+  border: 6px solid var(--dirt-dark);
+  outline: 6px solid var(--grass);
+  outline-offset: -12px;
+  clip-path: polygon(
+    0 12px, 12px 12px, 12px 0, calc(100% - 12px) 0, calc(100% - 12px) 12px, 100% 12px,
+    100% calc(100% - 12px), calc(100% - 12px) calc(100% - 12px), calc(100% - 12px) 100%,
+    12px 100%, 12px calc(100% - 12px), 0 calc(100% - 12px)
+  );
+  padding: 2.25rem 2.5rem;
+  text-align: center;
+  max-width: 22rem;
+  box-shadow: 0 10px 0 rgba(0, 0, 0, 0.35), 0 14px 30px rgba(0, 0, 0, 0.45);
+  image-rendering: pixelated;
+}
+
+.overlay-card h2 {
+  margin: 0 0 1rem;
+  font-size: 1.75rem;
+  color: var(--grass-light);
+  text-shadow: 2px 2px 0 var(--dirt-dark), 4px 4px 0 rgba(0, 0, 0, 0.3);
+}
+
+.overlay-card p {
+  margin: 0.4rem 0;
+  font-size: 0.85rem;
+  color: #fff8e7;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.4);
+}
+
+.overlay-card button {
+  margin-top: 1.5rem;
+  padding: 0.75rem 1.75rem;
+  font-family: inherit;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--dirt-dark);
+  background: var(--grass);
+  border: none;
+  box-shadow:
+    inset 3px 3px 0 var(--grass-light),
+    inset -3px -3px 0 var(--dirt),
+    0 5px 0 var(--dirt-dark);
+  cursor: pointer;
+}
+
+.overlay-card button:hover {
+  background: var(--grass-light);
+}
+
+.overlay-card button:active {
+  transform: translateY(3px);
+  box-shadow: inset 3px 3px 0 var(--grass-light), inset -3px -3px 0 var(--dirt);
 }

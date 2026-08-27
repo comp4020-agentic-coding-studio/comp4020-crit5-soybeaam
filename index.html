@@ -29,6 +29,29 @@
     <main>
       <h1 class="visually-hidden">Gap Hop</h1>
       <canvas id="runner"></canvas>
+
+      <div id="hud" class="hud hidden">
+        <span id="score">0</span>
+        <span id="best-label">best <span id="best">0</span></span>
+      </div>
+
+      <div id="menu" class="overlay">
+        <div class="overlay-card">
+          <h2>Gap&nbsp;Hop</h2>
+          <p>Tap, click, or press Space to jump the gaps.</p>
+          <p>Don't fall in.</p>
+          <button id="start-btn" type="button">Tap to Play</button>
+        </div>
+      </div>
+
+      <div id="gameover" class="overlay hidden">
+        <div class="overlay-card">
+          <h2 id="gameover-title">You fell!</h2>
+          <p>Score: <span id="final-score">0</span></p>
+          <p>Best: <span id="final-best">0</span></p>
+          <button id="restart-btn" type="button">Restart</button>
+        </div>
+      </div>
     </main>
     <script type="module" src="./main.ts"></script>
   </body>

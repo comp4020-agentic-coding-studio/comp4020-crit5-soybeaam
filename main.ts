@@ -11,12 +11,12 @@ function loadImage(src: string): HTMLImageElement {
 }
 
 const bg = {
-  mountain: loadImage("./bg/mountain.png"),
-  cloudBig: loadImage("./bg/cloud_big.png"),
-  cloudSmall: loadImage("./bg/cloud_small.png"),
-  ground: loadImage("./bg/ground.png"),
+  sky: loadImage("./bg/sky.png"),
   tree: loadImage("./bg/tree.png"),
   bush: loadImage("./bg/bush.png"),
+  bushSmall: loadImage("./bg/bush_small.png"),
+  rock: loadImage("./bg/rock.png"),
+  flower: loadImage("./bg/flower.png"),
 };
 
 function ready(img: HTMLImageElement): boolean {
@@ -73,27 +73,25 @@ const GROUND_SCREEN_Y = 0.68; // fraction of canvas height where the ground line
 const PLAYER_SCREEN_X = 0.28; // fraction of canvas width where the player sits, world scrolls under it
 const ZOOM = 2.4; // css px per world unit; keeps only the next gap or two in view
 
+const GRASS = "#7cb824";
+const DIRT = "#5a3d2b";
+
 function worldToScreen(worldX: number): number {
   return (worldX - state.playerX) * ZOOM + canvas.width * PLAYER_SCREEN_X / devicePixelRatio;
 }
 
-function drawTiledLayer(
-  img: HTMLImageElement,
-  groundY: number,
-  parallax: number,
-  drawScale: number,
-  yFrac: number,
-): void {
+// Rounds every drawn pixel rect to whole pixels so adjacent tiles butt up
+// exactly with no fractional-pixel seam between them.
+function drawSkyCover(img: HTMLImageElement, coverHeight: number, parallax: number): void {
   if (!ready(img)) return;
-  const h = img.height * drawScale;
-  const w = img.width * drawScale;
+  const h = Math.round(coverHeight);
+  const w = Math.round((img.width / img.height) * h);
   const period = w;
-  const offset = ((state.playerX * parallax * ZOOM) % period + period) % period;
-  const y = groundY - h * (1 - yFrac);
+  const offset = Math.round(((state.playerX * parallax * ZOOM) % period + period) % period);
   const tiles = Math.ceil(canvas.width / period) + 2;
   for (let i = -1; i < tiles; i++) {
     const x = i * period - offset;
-    ctx.drawImage(img, x, y, w, h);
+    ctx.drawImage(img, x, 0, w, h);
   }
 }
 
@@ -118,18 +116,19 @@ function drawScattered(
 }
 
 function drawBackground(groundY: number): void {
-  const skyGradient = ctx.createLinearGradient(0, 0, 0, groundY);
-  skyGradient.addColorStop(0, "#4a90d9");
-  skyGradient.addColorStop(1, "#8fc6e8");
-  ctx.fillStyle = skyGradient;
-  ctx.fillRect(0, 0, canvas.width, groundY);
+  if (!ready(bg.sky)) {
+    ctx.fillStyle = "#8fc6e8";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  drawSkyCover(bg.sky, canvas.height, 0.15);
 
   const scale = devicePixelRatio * 1.4;
-  drawTiledLayer(bg.cloudBig, groundY, 0.03, scale * 0.8, 0.85);
-  drawTiledLayer(bg.cloudSmall, groundY, 0.05, scale * 0.6, 0.95);
-  drawTiledLayer(bg.mountain, groundY, 0.2, scale * 1.6, 0);
+  drawScattered(bg.rock, groundY, scale * 0.7, 420, 40);
   drawScattered(bg.tree, groundY, scale * 0.75, 340, 60);
   drawScattered(bg.bush, groundY, scale * 0.7, 340, 220);
+  drawScattered(bg.bushSmall, groundY, scale * 0.65, 260, 140);
+  drawScattered(bg.flower, groundY, scale * 0.9, 180, 20);
 }
 
 function draw(): void {
@@ -138,17 +137,12 @@ function draw(): void {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   drawBackground(groundY);
 
-  ctx.fillStyle = "#5a3d2b";
+  // Ground is a flat solid colour (grass cap + dirt fill), not sprite art.
+  const grassBand = 8 * scale;
+  ctx.fillStyle = DIRT;
   ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
-  if (ready(bg.ground)) {
-    const groundScale = scale * 1.4;
-    const tileW = bg.ground.width * groundScale;
-    const tileH = bg.ground.height * groundScale;
-    const offset = ((state.playerX * ZOOM) % tileW + tileW) % tileW;
-    for (let x = -offset - tileW; x < canvas.width + tileW; x += tileW) {
-      ctx.drawImage(bg.ground, x, groundY, tileW, tileH);
-    }
-  }
+  ctx.fillStyle = GRASS;
+  ctx.fillRect(0, groundY, canvas.width, grassBand);
 
   ctx.strokeStyle = "#2a2f3a";
   ctx.lineWidth = 3 * scale;
@@ -196,30 +190,87 @@ function draw(): void {
   }
 }
 
+type UiState = "menu" | "playing" | "over";
+let uiState: UiState = "menu";
+
+const BEST_KEY = "gap-hop:best-score";
+const hud = document.querySelector<HTMLDivElement>("#hud")!;
+const scoreEl = document.querySelector<HTMLSpanElement>("#score")!;
+const bestEl = document.querySelector<HTMLSpanElement>("#best")!;
+const menuEl = document.querySelector<HTMLDivElement>("#menu")!;
+const gameoverEl = document.querySelector<HTMLDivElement>("#gameover")!;
+const gameoverTitleEl = document.querySelector<HTMLHeadingElement>("#gameover-title")!;
+const finalScoreEl = document.querySelector<HTMLSpanElement>("#final-score")!;
+const finalBestEl = document.querySelector<HTMLSpanElement>("#final-best")!;
+const startBtn = document.querySelector<HTMLButtonElement>("#start-btn")!;
+const restartBtn = document.querySelector<HTMLButtonElement>("#restart-btn")!;
+
+function readBest(): number {
+  return Number(localStorage.getItem(BEST_KEY) ?? 0);
+}
+
+function currentScore(): number {
+  return Math.floor(state.playerX);
+}
+
+function startGame(): void {
+  state = createGame();
+  uiState = "playing";
+  menuEl.classList.add("hidden");
+  gameoverEl.classList.add("hidden");
+  hud.classList.remove("hidden");
+  bestEl.textContent = String(readBest());
+}
+
+function endGame(): void {
+  uiState = "over";
+  const score = currentScore();
+  const best = Math.max(score, readBest());
+  localStorage.setItem(BEST_KEY, String(best));
+  gameoverTitleEl.textContent = state.status === "won" ? "You made it!" : "You fell!";
+  finalScoreEl.textContent = String(score);
+  finalBestEl.textContent = String(best);
+  gameoverEl.classList.remove("hidden");
+}
+
 function tick(now: number): void {
   const dt = Math.min((now - lastTime) / 1000, 0.05);
   lastTime = now;
-  step(state, dt);
-  updateAnim(dt);
+  if (uiState === "playing") {
+    step(state, dt);
+    updateAnim(dt);
+    scoreEl.textContent = String(currentScore());
+    if (state.status !== "playing") {
+      endGame();
+    }
+  }
   draw();
   requestAnimationFrame(tick);
 }
 
-function handleInput(): void {
-  if (state.status === "playing") {
+function handleJumpInput(): void {
+  if (uiState === "playing") {
     jump(state);
-  } else {
-    state = createGame();
   }
 }
 
-canvas.addEventListener("pointerdown", handleInput);
+canvas.addEventListener("pointerdown", handleJumpInput);
 window.addEventListener("keydown", (e) => {
   if (e.code === "Space" || e.code === "Enter" || e.code === "ArrowUp") {
     e.preventDefault();
-    handleInput();
+    if (uiState === "menu") {
+      startGame();
+    } else if (uiState === "over") {
+      startGame();
+    } else {
+      handleJumpInput();
+    }
   }
 });
+
+startBtn.addEventListener("click", startGame);
+restartBtn.addEventListener("click", startGame);
+bestEl.textContent = String(readBest());
 
 requestAnimationFrame((now) => {
   lastTime = now;
