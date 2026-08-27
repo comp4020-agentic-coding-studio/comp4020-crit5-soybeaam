@@ -2,6 +2,26 @@ import { createGame, jump, step, type GameState } from "./game.ts";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#runner")!;
 const ctx = canvas.getContext("2d")!;
+ctx.imageSmoothingEnabled = false;
+
+function loadImage(src: string): HTMLImageElement {
+  const img = new Image();
+  img.src = src;
+  return img;
+}
+
+const bg = {
+  mountain: loadImage("./bg/mountain.png"),
+  cloudBig: loadImage("./bg/cloud_big.png"),
+  cloudSmall: loadImage("./bg/cloud_small.png"),
+  ground: loadImage("./bg/ground.png"),
+  tree: loadImage("./bg/tree.png"),
+  bush: loadImage("./bg/bush.png"),
+};
+
+function ready(img: HTMLImageElement): boolean {
+  return img.complete && img.naturalWidth > 0;
+}
 
 type AnimName = "run" | "jump" | "fall" | "die";
 const FRAME_COUNTS: Record<AnimName, number> = { run: 8, jump: 8, fall: 8, die: 4 };
@@ -57,49 +77,59 @@ function worldToScreen(worldX: number): number {
   return (worldX - state.playerX) * ZOOM + canvas.width * PLAYER_SCREEN_X / devicePixelRatio;
 }
 
-function drawMountainLayer(groundY: number, parallax: number, period: number, peakHeight: number, color: string): void {
-  const offset = ((state.playerX * parallax) % period + period) % period;
-  const tiles = Math.ceil(canvas.width / (period * ZOOM)) + 2;
-  ctx.fillStyle = color;
+function drawTiledLayer(
+  img: HTMLImageElement,
+  groundY: number,
+  parallax: number,
+  drawScale: number,
+  yFrac: number,
+): void {
+  if (!ready(img)) return;
+  const h = img.height * drawScale;
+  const w = img.width * drawScale;
+  const period = w;
+  const offset = ((state.playerX * parallax * ZOOM) % period + period) % period;
+  const y = groundY - h * (1 - yFrac);
+  const tiles = Math.ceil(canvas.width / period) + 2;
   for (let i = -1; i < tiles; i++) {
-    const baseWorldX = i * period - offset / ZOOM;
-    const x0 = baseWorldX * ZOOM;
-    const xMid = x0 + (period * ZOOM) / 2;
-    const x1 = x0 + period * ZOOM;
-    ctx.beginPath();
-    ctx.moveTo(x0, groundY);
-    ctx.lineTo(xMid, groundY - peakHeight);
-    ctx.lineTo(x1, groundY);
-    ctx.closePath();
-    ctx.fill();
+    const x = i * period - offset;
+    ctx.drawImage(img, x, y, w, h);
   }
 }
 
-function drawCloud(x: number, y: number, s: number): void {
-  ctx.beginPath();
-  ctx.arc(x, y, 10 * s, 0, Math.PI * 2);
-  ctx.arc(x + 12 * s, y - 6 * s, 13 * s, 0, Math.PI * 2);
-  ctx.arc(x + 26 * s, y, 10 * s, 0, Math.PI * 2);
-  ctx.fill();
+function drawScattered(
+  img: HTMLImageElement,
+  groundY: number,
+  drawScale: number,
+  spacing: number,
+  phase: number,
+): void {
+  if (!ready(img)) return;
+  const h = img.height * drawScale;
+  const w = img.width * drawScale;
+  const firstIndex = Math.floor((state.playerX - 300) / spacing) - 1;
+  const lastIndex = Math.ceil((state.playerX + 300) / spacing) + 1;
+  for (let i = firstIndex; i < lastIndex; i++) {
+    const worldX = i * spacing + phase;
+    const x = worldToScreen(worldX) * devicePixelRatio - w / 2;
+    if (x < -w || x > canvas.width + w) continue;
+    ctx.drawImage(img, x, groundY - h, w, h);
+  }
 }
 
 function drawBackground(groundY: number): void {
   const skyGradient = ctx.createLinearGradient(0, 0, 0, groundY);
-  skyGradient.addColorStop(0, "#1e3a5f");
-  skyGradient.addColorStop(1, "#3a6ea5");
+  skyGradient.addColorStop(0, "#4a90d9");
+  skyGradient.addColorStop(1, "#8fc6e8");
   ctx.fillStyle = skyGradient;
   ctx.fillRect(0, 0, canvas.width, groundY);
 
-  const cloudScale = devicePixelRatio;
-  const cloudOffset = ((state.playerX * 0.03) % 260 + 260) % 260;
-  ctx.fillStyle = "rgba(255,255,255,0.85)";
-  for (let i = -1; i < Math.ceil(canvas.width / (260 * cloudScale)) + 2; i++) {
-    const cx = i * 260 * cloudScale - cloudOffset * cloudScale;
-    drawCloud(cx + 40 * cloudScale, groundY * 0.18 + (i % 2) * 20 * cloudScale, cloudScale);
-  }
-
-  drawMountainLayer(groundY, 0.15, 420, groundY * 0.42, "#2f5d55");
-  drawMountainLayer(groundY, 0.3, 300, groundY * 0.3, "#3f7a68");
+  const scale = devicePixelRatio * 1.4;
+  drawTiledLayer(bg.cloudBig, groundY, 0.03, scale * 0.8, 0.85);
+  drawTiledLayer(bg.cloudSmall, groundY, 0.05, scale * 0.6, 0.95);
+  drawTiledLayer(bg.mountain, groundY, 0.2, scale * 1.6, 0);
+  drawScattered(bg.tree, groundY, scale * 0.75, 340, 60);
+  drawScattered(bg.bush, groundY, scale * 0.7, 340, 220);
 }
 
 function draw(): void {
@@ -110,8 +140,15 @@ function draw(): void {
 
   ctx.fillStyle = "#5a3d2b";
   ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
-  ctx.fillStyle = "#4caf50";
-  ctx.fillRect(0, groundY, canvas.width, 6 * scale);
+  if (ready(bg.ground)) {
+    const groundScale = scale * 1.4;
+    const tileW = bg.ground.width * groundScale;
+    const tileH = bg.ground.height * groundScale;
+    const offset = ((state.playerX * ZOOM) % tileW + tileW) % tileW;
+    for (let x = -offset - tileW; x < canvas.width + tileW; x += tileW) {
+      ctx.drawImage(bg.ground, x, groundY, tileW, tileH);
+    }
+  }
 
   ctx.strokeStyle = "#2a2f3a";
   ctx.lineWidth = 3 * scale;

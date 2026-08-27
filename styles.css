@@ -45,4 +45,5 @@ main {
   height: 100%;
   touch-action: manipulation;
   cursor: pointer;
+  image-rendering: pixelated;
 }
