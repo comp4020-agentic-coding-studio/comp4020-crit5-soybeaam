@@ -1,5 +1,132 @@
 import { createGame, jump, step, type GameState } from "./game.ts";
 
+// Synthesized background loop --- no audio asset to license or fetch, and it
+// needs a user gesture to start, which lines up with the tap-to-play button.
+const music = (() => {
+  let ctx: AudioContext | null = null;
+  let master: GainNode | null = null;
+  let nextNoteTime = 0;
+  let step = 0;
+  let schedulerId: number | null = null;
+
+  // A four-chord pop progression (I-V-vi-IV in C major) rather than one
+  // repeated bar --- bass and lead both re-arpeggiate for each chord, so the
+  // full loop is 32 steps instead of 8 and doesn't loop every 1.2s. A hi-hat
+  // tick and a downbeat kick add rhythm without needing a second melodic idea.
+  type Quality = "major" | "minor";
+  const PROGRESSION: { root: number; quality: Quality }[] = [
+    { root: 48, quality: "major" }, // C
+    { root: 55, quality: "major" }, // G
+    { root: 57, quality: "minor" }, // Am
+    { root: 53, quality: "major" }, // F
+  ];
+  // Indices into [root, third, fifth, octave] --- the same walking contour
+  // for every chord, so the variety comes from the chord changing under it.
+  const BASS_SHAPE = [0, 0, 1, 2, 3, 2, 1, 2];
+  const LEAD_SHAPE = [3, 2, 1, 0, 1, 2, 3, 2];
+  const STEPS_PER_PHRASE = BASS_SHAPE.length;
+  const NOTE_DURATION = 0.15;
+  const LOOKAHEAD = 0.12; // seconds of schedule buffer
+
+  function chordTones({ root, quality }: { root: number; quality: Quality }): number[] {
+    const third = root + (quality === "minor" ? 3 : 4);
+    return [root, third, root + 7, root + 12];
+  }
+
+  function midiToFreq(note: number): number {
+    return 440 * 2 ** ((note - 69) / 12);
+  }
+
+  function scheduleTone(
+    time: number,
+    freq: number,
+    type: OscillatorType,
+    peak: number,
+    duration: number,
+  ): void {
+    if (!ctx || !master) return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0, time);
+    gain.gain.linearRampToValueAtTime(peak, time + Math.min(0.015, duration / 4));
+    gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
+    osc.connect(gain);
+    gain.connect(master);
+    osc.start(time);
+    osc.stop(time + duration + 0.02);
+  }
+
+  // A short burst of filtered noise reads as a hi-hat without any sample.
+  function scheduleHat(time: number): void {
+    if (!ctx || !master) return;
+    const bufferSize = Math.ceil(ctx.sampleRate * 0.04);
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = "highpass";
+    filter.frequency.value = 6000;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.05, time);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.04);
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(master);
+    noise.start(time);
+    noise.stop(time + 0.05);
+  }
+
+  function scheduleStep(time: number, index: number): void {
+    const phrase = PROGRESSION[Math.floor(index / STEPS_PER_PHRASE) % PROGRESSION.length];
+    const tones = chordTones(phrase);
+    const beat = index % STEPS_PER_PHRASE;
+
+    scheduleTone(time, midiToFreq(tones[BASS_SHAPE[beat]]), "square", 0.14, NOTE_DURATION);
+    scheduleTone(
+      time,
+      midiToFreq(tones[LEAD_SHAPE[beat]] + 12),
+      "triangle",
+      0.09,
+      NOTE_DURATION * 0.9,
+    );
+    scheduleHat(time);
+    if (beat === 0) {
+      scheduleTone(time, midiToFreq(phrase.root - 24), "sine", 0.25, NOTE_DURATION * 1.3);
+    }
+  }
+
+  function scheduler(): void {
+    if (!ctx) return;
+    while (nextNoteTime < ctx.currentTime + LOOKAHEAD) {
+      scheduleStep(nextNoteTime, step);
+      nextNoteTime += NOTE_DURATION;
+      step += 1;
+    }
+    schedulerId = window.setTimeout(scheduler, 25);
+  }
+
+  return {
+    start(): void {
+      if (ctx) return;
+      ctx = new AudioContext();
+      master = ctx.createGain();
+      master.gain.value = 1;
+      master.connect(ctx.destination);
+      nextNoteTime = ctx.currentTime + 0.05;
+      step = 0;
+      scheduler();
+    },
+    setMuted(muted: boolean): void {
+      if (!ctx || !master) return;
+      master.gain.setTargetAtTime(muted ? 0 : 1, ctx.currentTime, 0.05);
+    },
+  };
+})();
+
 const canvas = document.querySelector<HTMLCanvasElement>("#runner")!;
 const ctx = canvas.getContext("2d")!;
 ctx.imageSmoothingEnabled = false;
@@ -171,16 +298,6 @@ function draw(): void {
     ctx.stroke();
   }
 
-  const finishPx = worldToScreen(state.finishX) * scale;
-  if (finishPx > 0 && finishPx < canvas.width) {
-    ctx.strokeStyle = "#34d399";
-    ctx.lineWidth = 3 * scale;
-    ctx.beginPath();
-    ctx.moveTo(finishPx, groundY - 60 * scale);
-    ctx.lineTo(finishPx, groundY);
-    ctx.stroke();
-  }
-
   const playerScreenX = worldToScreen(state.playerX) * scale;
   const playerScreenY = groundY - state.playerY * scale * ZOOM;
   const size = 28 * scale;
@@ -220,6 +337,8 @@ function startGame(): void {
   gameoverEl.classList.add("hidden");
   hud.classList.remove("hidden");
   bestEl.textContent = String(readBest());
+  music.start();
+  music.setMuted(false);
 }
 
 function endGame(): void {
@@ -227,10 +346,11 @@ function endGame(): void {
   const score = currentScore();
   const best = Math.max(score, readBest());
   localStorage.setItem(BEST_KEY, String(best));
-  gameoverTitleEl.textContent = state.status === "won" ? "You made it!" : "You fell!";
+  gameoverTitleEl.textContent = "You fell!";
   finalScoreEl.textContent = String(score);
   finalBestEl.textContent = String(best);
   gameoverEl.classList.remove("hidden");
+  music.setMuted(true);
 }
 
 function tick(now: number): void {

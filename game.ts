@@ -18,21 +18,20 @@ export interface GameState {
   jumpsRemaining: number;
   maxJumps: number;
   runSpeed: number;
+  baseRunSpeed: number;
   jumpVelocity: number;
   gravity: number;
   groundY: number;
   obstacles: Obstacle[];
   nextSpawnX: number;
   spawnGap: number;
-  finishX: number;
-  status: "playing" | "won" | "lost";
+  status: "playing" | "lost";
 }
 
 export interface GameConfig {
   runSpeed?: number;
   jumpVelocity?: number;
   gravity?: number;
-  finishX?: number;
   initialObstacle?: Obstacle;
   spawnGap?: number;
   maxJumps?: number;
@@ -41,6 +40,7 @@ export interface GameConfig {
 export function createGame(config: GameConfig = {}): GameState {
   const initialObstacle = config.initialObstacle ?? { x: 150, width: 16, kind: "gap" };
   const maxJumps = config.maxJumps ?? 2;
+  const baseRunSpeed = config.runSpeed ?? 90;
   return {
     playerX: 0,
     playerY: 0,
@@ -48,14 +48,14 @@ export function createGame(config: GameConfig = {}): GameState {
     isJumping: false,
     jumpsRemaining: maxJumps,
     maxJumps,
-    runSpeed: config.runSpeed ?? 90,
+    runSpeed: baseRunSpeed,
+    baseRunSpeed,
     jumpVelocity: config.jumpVelocity ?? 210,
     gravity: config.gravity ?? 520,
     groundY: 0,
     obstacles: [initialObstacle],
     nextSpawnX: initialObstacle.x + difficulty(initialObstacle.x).interval,
     spawnGap: config.spawnGap ?? 90,
-    finishX: config.finishX ?? 1000,
     status: "playing",
   };
 }
@@ -82,16 +82,31 @@ export function checkFallen(state: GameState): boolean {
 
 // Widths/intervals ramp up with distance on average, but each gap jitters
 // randomly around that average so the rhythm doesn't feel like a metronome.
+// The jitter is wide enough that some gaps land far above the average width
+// --- occasional gaps that demand the full double jump, not just a hop.
 function difficulty(distance: number): { width: number; interval: number } {
   const t = Math.min(distance / 800, 1);
-  const baseWidth = 16 + t * 10;
+  const baseWidth = 22 + t * 20;
   const baseInterval = 220 - t * 110;
-  const widthJitter = (Math.random() - 0.5) * 14;
+  const widthJitter = (Math.random() - 0.5) * 36;
   const intervalJitter = (Math.random() - 0.5) * 60;
   return {
     width: Math.max(10, baseWidth + widthJitter),
     interval: Math.max(70, baseInterval + intervalJitter),
   };
+}
+
+// Score (world distance) is the only difficulty knob the player feels apart
+// from gap width: every 250 units traveled, speed steps up by 12 world
+// units/sec, capping at 2.5x the base speed so a long run stays hard rather
+// than becoming unplayable.
+const SPEEDUP_INTERVAL = 250;
+const SPEEDUP_STEP = 12;
+const SPEEDUP_CAP_FACTOR = 2.5;
+
+function speedFor(distance: number, baseRunSpeed: number): number {
+  const tier = Math.floor(distance / SPEEDUP_INTERVAL);
+  return Math.min(baseRunSpeed + tier * SPEEDUP_STEP, baseRunSpeed * SPEEDUP_CAP_FACTOR);
 }
 
 export function step(state: GameState, dt: number): void {
@@ -103,6 +118,7 @@ export function step(state: GameState, dt: number): void {
   }
   if (state.status !== "playing") return;
 
+  state.runSpeed = speedFor(state.playerX, state.baseRunSpeed);
   state.playerX += state.runSpeed * dt;
 
   if (state.isJumping) {
@@ -128,10 +144,5 @@ export function step(state: GameState, dt: number): void {
 
   if (checkFallen(state)) {
     state.status = "lost";
-    return;
-  }
-
-  if (state.playerX >= state.finishX) {
-    state.status = "won";
   }
 }
